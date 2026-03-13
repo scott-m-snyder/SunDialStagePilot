@@ -20,5 +20,8 @@
         <activity android:name=".HelpActivity" />
         <activity android:name=".SelfTestActivity" />
 
+        <activity android:name=".TestBlocksActivity" />
+        <activity android:name=".TestPdfParseActivity" />
+
     </application>
 </manifest>

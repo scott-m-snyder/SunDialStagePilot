@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -18,5 +18,28 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         android:layout_marginTop="16dp" />
+
+    <!-- Test Blocks Button -->
+    <Button
+        android:id="@+id/test_blocks_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Test Blocks"
+        app:layout_constraintTop_toBottomOf="@id/app_title"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/test_pdf_parse_button"
+        app:layout_constraintHorizontal_chainStyle="packed"
+        android:layout_marginTop="32dp" />
+
+    <!-- Test PDF Parse Button -->
+    <Button
+        android:id="@+id/test_pdf_parse_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Test PDF Parse"
+        app:layout_constraintTop_toTopOf="@+id/test_blocks_button"
+        app:layout_constraintStart_toEndOf="@+id/test_blocks_button"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginStart="16dp"/>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
