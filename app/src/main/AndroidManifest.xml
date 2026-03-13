@@ -22,6 +22,7 @@
 
         <activity android:name=".TestBlocksActivity" />
         <activity android:name=".TestPdfParseActivity" />
+        <activity android:name=".TestParseAndBlocksActivity" />
 
     </application>
 </manifest>

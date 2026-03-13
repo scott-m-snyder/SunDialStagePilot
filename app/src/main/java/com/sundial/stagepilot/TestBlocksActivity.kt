@@ -99,7 +99,7 @@ class TestBlocksActivity : Activity() {
                 view.animate()
                     .x(currentX)
                     .y(currentY)
-                    .setDuration(250) // Smooth, satisfying magnetic snap
+                    .setDuration(200) // Smooth, satisfying magnetic snap
                     .start()
             }
 
@@ -197,16 +197,18 @@ class TestBlocksActivity : Activity() {
                     return true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    // Drop the block, remove the 'pop' effect
+                    // Pre-queue the scale/alpha properties to snap back to normal
                     view.animate()
                         .scaleX(1.0f)
                         .scaleY(1.0f)
                         .alpha(1.0f)
-                        .setDuration(150)
-                        .start()
+                        // Do NOT call .start() here! layoutBlocks() will attach X/Y and call start() synchronously!
                         
                     // Passing null forces ALL blocks (including the one we just dropped) to snap to grid
-                    layoutBlocks(null)
+                    // We use container.post to ensure layout happens safely at the start of the next frame
+                    container.post { layoutBlocks(null) }
+                    
+                    view.performClick()
                     return true
                 }
                 else -> return false
