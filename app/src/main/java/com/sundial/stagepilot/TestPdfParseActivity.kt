@@ -65,14 +65,6 @@ class TestPdfParseActivity : ComponentActivity() {
                     formattedLog.append("=========================\n\n")
 
                     // A highly robust, industry-standard Regular Expression to detect all musical chord notations.
-                    // Supports:
-                    // - Roots: A-G
-                    // - Accidentals: b, #, and true unicode ♭, ♯
-                    // - Qualities: m, M, min, maj, dim, aug, sus, add, +, -, Δ, °, ø
-                    // - Intervals: 2, 4, 5, 6, 6/9, 7, 9, 11, 13
-                    // - Alterations: (b5), #9, add9, sus4, etc. (including parentheses)
-                    // - Slash/Bass chords: /F#, /Bb
-                    // - "No Chord" markers: N.C.
                     val chordRegex = "^([A-G][b#♭♯]?(m|M|min|maj|dim|aug|sus|add|\\+|-|Δ|°|ø)?(2|4|5|6|6/9|7|9|11|13)?(\\(?([b#♭♯]|add|sus|maj|min|\\+|-)?\\d+\\)?)*(/[A-G][b#♭♯]?)?|N\\.?C\\.?)$".toRegex()
 
                     for (line in rawLines) {
@@ -81,6 +73,9 @@ class TestPdfParseActivity : ComponentActivity() {
                         for (word in wordsOrChords) {
                             // Strip any pre-existing brackets in case the PDF already formats them like [C]
                             val cleanWord = word.trim('[', ']')
+                            
+                            // If the word was *only* brackets (like a stray [ or []), skip it!
+                            if (cleanWord.isBlank()) continue
                             
                             if (cleanWord.matches(chordRegex)) {
                                 // It IS a chord! Wrap it cleanly in brackets.

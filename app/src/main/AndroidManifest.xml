@@ -9,7 +9,18 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
 
+        <!-- Old MainActivity is now just a background activity (hidden from launcher) -->
         <activity android:name=".MainActivity"
+            android:exported="false" />
+
+        <activity android:name=".HelpActivity" />
+        <activity android:name=".SelfTestActivity" />
+
+        <activity android:name=".TestBlocksActivity" />
+        <activity android:name=".TestPdfParseActivity" />
+
+        <!-- Make TestParseAndBlocksActivity the new Home Page! -->
+        <activity android:name=".TestParseAndBlocksActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -17,12 +28,10 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".HelpActivity" />
-        <activity android:name=".SelfTestActivity" />
-
-        <activity android:name=".TestBlocksActivity" />
-        <activity android:name=".TestPdfParseActivity" />
-        <activity android:name=".TestParseAndBlocksActivity" />
+        <activity android:name=".TestFeature1Activity" />
+        <activity android:name=".TestFeature2Activity" />
+        <activity android:name=".TestFeature3Activity" />
+        <activity android:name=".TestFeature4Activity" />
 
     </application>
 </manifest>

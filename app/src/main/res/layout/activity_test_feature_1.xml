@@ -30,7 +30,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="8dp"
-            android:text="SunDial StagePilot"
+            android:text="SunDial StagePilot - Feature 1"
             android:textColor="#000000"
             android:textSize="20sp"
             android:textStyle="bold" />
@@ -46,7 +46,6 @@
             android:background="?android:attr/selectableItemBackgroundBorderless" />
     </LinearLayout>
 
-    <!-- Controls Area -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -63,7 +62,6 @@
             android:text="Ready."/>
     </LinearLayout>
 
-    <!-- The Lego Canvas -->
     <FrameLayout
         android:id="@+id/draggableContainer"
         android:layout_width="match_parent"
