@@ -19,6 +19,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import com.google.android.gms.wearable.MessageClient
+import com.google.android.gms.wearable.MessageEvent
+import com.google.android.gms.wearable.Wearable
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -30,7 +33,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.random.Random
 
-open class TestParseAndBlocksActivity : ComponentActivity() {
+open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMessageReceivedListener {
 
     protected lateinit var btnMenu: Button
     protected lateinit var btnSave: Button
@@ -53,7 +56,7 @@ open class TestParseAndBlocksActivity : ComponentActivity() {
                 Log.e("PdfToBlocks", "Failed to take persistable URI permission", e)
             }
 
-            val prefs = getSharedPreferences("StagePilotPrefs", Context.MODE_PRIVATE)
+            val prefs = getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
             prefs.edit().putString("last_pdf_uri", uri.toString()).apply()
 
             loadOrParsePdf(uri)
@@ -100,7 +103,7 @@ open class TestParseAndBlocksActivity : ComponentActivity() {
         }
 
         // --- Auto-Load Last PDF ---
-        val prefs = getSharedPreferences("StagePilotPrefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
         val lastUriStr = prefs.getString("last_pdf_uri", null)
         if (lastUriStr != null) {
             try {
@@ -110,6 +113,79 @@ open class TestParseAndBlocksActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        // Register to listen to the watch!
+        Wearable.getMessageClient(this).addListener(this)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        Wearable.getMessageClient(this).removeListener(this)
+    }
+
+    // --- WEAR OS COMMUNICATION HUB ---
+
+    override fun onMessageReceived(messageEvent: MessageEvent) {
+        // The watch just woke up and wants to know what's on the screen
+        if (messageEvent.path == "/stagepilot/request_chart") {
+            Log.d("StagePilot", "Watch requested the current chart. Sending it now...")
+            pushCurrentChartToWatch()
+        }
+    }
+
+    protected fun pushCurrentChartToWatch() {
+        val payload = buildStringFromBlocks()
+        if (payload.isBlank()) return // Don't send empty data
+
+        val messageClient = Wearable.getMessageClient(this)
+        Wearable.getNodeClient(this).connectedNodes.addOnSuccessListener { nodes ->
+            for (node in nodes) {
+                messageClient.sendMessage(node.id, "/stagepilot/load_chart", payload.toByteArray())
+                    .addOnSuccessListener { Log.d("StagePilot", "Pushed chart to watch!") }
+                    .addOnFailureListener { Log.e("StagePilot", "Failed to push chart to watch") }
+            }
+        }
+    }
+
+    // Builds a completely raw text version of the currently arranged blocks for the watch
+    private fun buildStringFromBlocks(): String {
+        val builder = StringBuilder()
+        var currentY = -1f
+
+        for (view in viewOrder) {
+            val block = view as TextView
+            val tagY = block.getTag(R.id.tag_target_y) as? Float ?: 0f
+            val isBlank = block.getTag(R.id.tag_is_blank) as? Boolean ?: false
+            
+            if (isBlank) {
+                // Instead of a full gap, just inject a double-line break for readability on the watch
+                builder.append("\n\n")
+                currentY = tagY // update Y position
+                continue
+            }
+
+            // If the Y dropped significantly, we are on a new line!
+            if (currentY != -1f && tagY > currentY + 10f) {
+                builder.append("\n")
+            }
+
+            val text = block.text.toString()
+            val isChord = block.getTag(R.id.tag_is_chord) as? Boolean ?: false
+
+            if (isChord) {
+                builder.append("[$text] ")
+            } else {
+                builder.append("$text ")
+            }
+
+            currentY = tagY
+        }
+        return builder.toString()
+    }
+
+    // ------------------------------------
 
     protected open fun getLayoutResourceId(): Int {
         return R.layout.activity_test_parse_and_blocks
@@ -126,7 +202,6 @@ open class TestParseAndBlocksActivity : ComponentActivity() {
             val tv = view as TextView
             val obj = JSONObject()
             
-            // Grab our saved tags
             val isBlank = tv.getTag(R.id.tag_is_blank) as? Boolean ?: false
             val isChord = tv.getTag(R.id.tag_is_chord) as? Boolean ?: false
             
@@ -136,17 +211,19 @@ open class TestParseAndBlocksActivity : ComponentActivity() {
             jsonArray.put(obj)
         }
         
-        val prefs = getSharedPreferences("StagePilotPrefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
         prefs.edit().putString("blocks_${currentUri.toString()}", jsonArray.toString()).apply()
         Toast.makeText(this, "Saved!", Toast.LENGTH_SHORT).show()
+        
+        // Push the newly saved layout to the watch!
+        pushCurrentChartToWatch()
     }
 
     protected fun loadOrParsePdf(uri: Uri) {
         currentUri = uri
         
-        // Check if we have a saved JSON version of this specific chart
-        val prefs = getSharedPreferences("StagePilotPrefs", Context.MODE_PRIVATE)
-        val savedJson = prefs.getString("blocks_${uri.toString()}", null)
+        val prefs = getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
+        val savedJson = prefs.getString("blocks_$uri", null)
         
         if (savedJson != null) {
             restoreBlocksFromJson(savedJson)
@@ -183,7 +260,10 @@ open class TestParseAndBlocksActivity : ComponentActivity() {
                     }
                     
                     tvStatus.text = "Loaded ${viewOrder.size} saved blocks."
-                    container.post { layoutBlocks(null) }
+                    container.post { 
+                        layoutBlocks(null) 
+                        pushCurrentChartToWatch() // Send newly loaded chart
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("PdfToBlocks", "Error restoring JSON", e)
@@ -201,7 +281,6 @@ open class TestParseAndBlocksActivity : ComponentActivity() {
                     val document = PDDocument.load(inputStream)
                     val textStripper = PDFTextStripper()
                     
-                    // CRITICAL FIX: Sort by position to grab titles and intro text that might otherwise be read out-of-order by PDFBox
                     textStripper.sortByPosition = true 
                     
                     val parsedText = textStripper.getText(document)
@@ -249,7 +328,10 @@ open class TestParseAndBlocksActivity : ComponentActivity() {
                             tvStatus.text = "Loaded ${parsedElements.size} blocks."
                         }
 
-                        container.post { layoutBlocks(null) }
+                        container.post { 
+                            layoutBlocks(null) 
+                            pushCurrentChartToWatch() // Send newly generated chart
+                        }
                     }
                 } ?: run {
                     withContext(Dispatchers.Main) { tvStatus.text = "Error: Could not open file." }
@@ -269,7 +351,6 @@ open class TestParseAndBlocksActivity : ComponentActivity() {
             textSize = 14f
             setTextColor(Color.WHITE)
             
-            // Tag it so we can easily serialize it later
             setTag(R.id.tag_is_blank, false)
             setTag(R.id.tag_is_chord, isChord)
             
@@ -304,7 +385,6 @@ open class TestParseAndBlocksActivity : ComponentActivity() {
             setBackgroundColor(Color.TRANSPARENT)
             setPadding(0, 0, 0, 0)
             
-            // Tag it so we can serialize it
             setTag(R.id.tag_is_blank, true)
             setTag(R.id.tag_is_chord, false)
 
@@ -371,7 +451,6 @@ open class TestParseAndBlocksActivity : ComponentActivity() {
                 val newText = input.text.toString().trim()
                 block.text = newText
                 
-                // If they manually added brackets to a word, make it a chord block
                 val isChord = newText.matches(chordRegex) || newText.startsWith("[")
                 block.setTag(R.id.tag_is_chord, isChord)
                 

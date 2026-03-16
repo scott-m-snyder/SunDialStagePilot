@@ -4,4 +4,5 @@
     <item name="tag_target_y" type="id" />
     <item name="tag_is_chord" type="id" />
     <item name="tag_is_blank" type="id" />
+    <item name="tag_force_new_line" type="id" />
 </resources>

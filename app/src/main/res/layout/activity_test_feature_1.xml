@@ -30,10 +30,20 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="8dp"
-            android:text="SunDial StagePilot - Feature 1"
+            android:text="Feature 1 Sandbox"
             android:textColor="#000000"
             android:textSize="20sp"
             android:textStyle="bold" />
+
+        <!-- Presentation Toggle Button (Eye Icon) -->
+        <Button
+            android:id="@+id/btn_presentation"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:text="👁️"
+            android:textSize="24sp"
+            android:textColor="#000000"
+            android:background="?android:attr/selectableItemBackgroundBorderless" />
 
         <!-- Save Button (Disk Icon) -->
         <Button
@@ -46,6 +56,7 @@
             android:background="?android:attr/selectableItemBackgroundBorderless" />
     </LinearLayout>
 
+    <!-- Controls Area -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -62,12 +73,20 @@
             android:text="Ready."/>
     </LinearLayout>
 
-    <FrameLayout
-        android:id="@+id/draggableContainer"
+    <!-- The Lego Canvas -->
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:background="#FFFFFF">
-    </FrameLayout>
+        android:fillViewport="true">
+
+        <FrameLayout
+            android:id="@+id/draggableContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="1000dp"
+            android:background="#FFFFFF">
+        </FrameLayout>
+    </ScrollView>
 
 </LinearLayout>

@@ -2,4 +2,7 @@ plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
 }
 include ':app'
+include ':wear'
+// The M5Stick hardware is NOT an Android module, so it is deliberately EXCLUDED from settings.gradle
+// so Android Studio does not try to compile it as Java/Kotlin.
 rootProject.name = "SunDial Stage Pilot"

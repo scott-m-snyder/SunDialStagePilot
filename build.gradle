@@ -16,3 +16,27 @@ allprojects {
         mavenCentral()
     }
 }
+
+// --- M5StickC PLUS2 PlatformIO Build & Deploy Tasks ---
+// These tasks use the Windows Command Prompt (cmd.exe /c) to execute the Python/PIO commands.
+
+tasks.register('pioInstall', Exec) {
+    group = "M5Stack Deployment"
+    description = "Installs PlatformIO CLI using pip (Requires Python)"
+    commandLine 'cmd', '/c', 'pip', 'install', 'platformio'
+}
+
+tasks.register('pioCompile', Exec) {
+    group = "M5Stack Deployment"
+    description = "Compiles the M5StickC PLUS2 C++ sketch via PlatformIO"
+    workingDir file('m5stick_hardware')
+    commandLine 'cmd', '/c', 'pio', 'run'
+}
+
+tasks.register('pioDeploy', Exec) {
+    group = "M5Stack Deployment"
+    description = "Flashes the M5StickC PLUS2 via PlatformIO"
+    dependsOn pioCompile
+    workingDir file('m5stick_hardware')
+    commandLine 'cmd', '/c', 'pio', 'run', '--target', 'upload'
+}

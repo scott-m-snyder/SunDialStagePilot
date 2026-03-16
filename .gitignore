@@ -12,3 +12,7 @@ captures/
 *.apk
 *.aar
 *.jks
+
+# PlatformIO
+m5stick_hardware/.pio/
+m5stick_hardware/python/
