@@ -7,6 +7,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.ScrollView
 import android.widget.TextView
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
@@ -44,6 +46,14 @@ class MainActivity : Activity(), MessageClient.OnMessageReceivedListener {
 
     override fun onResume() {
         super.onResume()
+        // Check for Google Play Services
+        val googleApiAvailability = GoogleApiAvailability.getInstance()
+        val connectionResult = googleApiAvailability.isGooglePlayServicesAvailable(this)
+        if (connectionResult != ConnectionResult.SUCCESS) {
+            tvChartContent.text = "Google Play Services not available."
+            return
+        }
+
         // Register the watch to listen for incoming charts from the phone
         Wearable.getMessageClient(this).addListener(this)
         
@@ -61,26 +71,31 @@ class MainActivity : Activity(), MessageClient.OnMessageReceivedListener {
         val nodeClient = Wearable.getNodeClient(this)
         val messageClient = Wearable.getMessageClient(this)
 
-        nodeClient.connectedNodes.addOnSuccessListener { nodes ->
-            if (nodes.isEmpty()) {
-                tvChartContent.text = "No phone connected.\nOpen StagePilot on your phone."
-                return@addOnSuccessListener
+        nodeClient.connectedNodes
+            .addOnSuccessListener { nodes ->
+                if (nodes.isEmpty()) {
+                    tvChartContent.text = "No phone connected.\nOpen StagePilot on your phone."
+                    return@addOnSuccessListener
+                }
+                
+                tvChartContent.text = "Syncing with phone..."
+                
+                for (node in nodes) {
+                    // Send a tiny empty payload to the specific "request_chart" path
+                    messageClient.sendMessage(node.id, "/stagepilot/request_chart", ByteArray(0))
+                        .addOnSuccessListener {
+                            Log.d("Wear", "Requested chart from ${node.displayName}")
+                        }
+                        .addOnFailureListener { e ->
+                            Log.e("Wear", "Failed to request chart", e)
+                            tvChartContent.text = "Failed to reach phone."
+                        }
+                }
             }
-            
-            tvChartContent.text = "Syncing with phone..."
-            
-            for (node in nodes) {
-                // Send a tiny empty payload to the specific "request_chart" path
-                messageClient.sendMessage(node.id, "/stagepilot/request_chart", ByteArray(0))
-                    .addOnSuccessListener {
-                        Log.d("Wear", "Requested chart from ${node.displayName}")
-                    }
-                    .addOnFailureListener { e ->
-                        Log.e("Wear", "Failed to request chart", e)
-                        tvChartContent.text = "Failed to reach phone."
-                    }
+            .addOnFailureListener { e ->
+                Log.e("Wear", "Failed to get connected nodes", e)
+                tvChartContent.text = "Error finding phone."
             }
-        }
     }
 
     // This triggers automatically whenever the Z Fold sends a message over Bluetooth/WiFi

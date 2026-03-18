@@ -11,7 +11,8 @@
         android:allowBackup="true"
         android:label="StagePilot Wear"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault">
+        android:theme="@android:style/Theme.DeviceDefault"
+        android:icon="@android:drawable/btn_star">
 
         <uses-library android:name="com.google.android.wearable" android:required="true" />
 

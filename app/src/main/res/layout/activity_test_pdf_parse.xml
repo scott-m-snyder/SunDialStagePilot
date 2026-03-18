@@ -1,34 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="#FAFAFA"
-    android:padding="16dp">
-
-    <Button
-        android:id="@+id/btn_select_pdf"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Select PDF File"
-        android:layout_marginBottom="16dp"/>
-
-    <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="#EEEEEE"
-        android:padding="12dp">
-
-        <TextView
-            android:id="@+id/tv_parsed_log"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="#333333"
-            android:textSize="14sp"
-            android:text="Waiting for a PDF...\n\nTap the button above to pick a file."
-            android:fontFamily="monospace"/>
-
-    </ScrollView>
-
-</LinearLayout>
+    android:layout_height="match_parent" />

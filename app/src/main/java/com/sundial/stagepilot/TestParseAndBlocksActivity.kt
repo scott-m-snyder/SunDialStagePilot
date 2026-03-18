@@ -45,7 +45,7 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
     protected var currentUri: Uri? = null
 
     // Match all chords
-    private val chordRegex = "^([A-G][b#♭♯]?(m|M|min|maj|dim|aug|sus|add|\\+|-|Δ|°|ø)?(2|4|5|6|6/9|7|9|11|13)?(\\(?([b#♭♯]|add|sus|maj|min|\\+|-)?\\d+\\)?)*(/[A-G][b#♭♯]?)?|N\\.?C\\.?)$".toRegex()
+    private val chordRegex = "^([A-G][b#♭♯]?(m|M|min|maj|dim|aug|sus|add|\\+|-|Δ|°|ø)?(2|4|5|6|6/9|7|9|11|13)?(\\(([b#♭♯]|add|sus|maj|min|\\+|-)?\\d+\\))?(/[A-G][b#♭♯]?)?|N\\.?C\\.?)$".toRegex()
 
     // Using OpenDocument to properly support persistable URI permissions
     protected val selectPdfLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -78,20 +78,16 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
 
         btnMenu.setOnClickListener { view ->
             val popup = PopupMenu(this, view)
-            popup.menu.add(0, 0, 0, "Select PDF")
+            popup.menu.add(0, 0, 0, "Open PDF")
             popup.menu.add(0, 1, 0, "Home (Parse & Blocks)")
-            popup.menu.add(0, 2, 0, "Test Feature 1")
-            popup.menu.add(0, 3, 0, "Test Feature 2")
-            popup.menu.add(0, 4, 0, "Test Feature 3")
-            popup.menu.add(0, 5, 0, "Test Feature 4")
+            popup.menu.add(0, 2, 0, "Log")
+            popup.menu.add(0, 3, 0, "Settings")
             popup.setOnMenuItemClickListener { item ->
                 when (item.itemId) {
                     0 -> selectPdfLauncher.launch(arrayOf("application/pdf"))
                     1 -> startActivity(Intent(this, TestParseAndBlocksActivity::class.java))
-                    2 -> startActivity(Intent(this, TestFeature1Activity::class.java))
-                    3 -> startActivity(Intent(this, TestFeature2Activity::class.java))
-                    4 -> startActivity(Intent(this, TestFeature3Activity::class.java))
-                    5 -> startActivity(Intent(this, TestFeature4Activity::class.java))
+                    2 -> startActivity(Intent(this, LogActivity::class.java))
+                    3 -> startActivity(Intent(this, SettingsActivity::class.java))
                 }
                 true
             }
@@ -116,8 +112,7 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
 
     override fun onResume() {
         super.onResume()
-        // Register to listen to the watch!
-        Wearable.getMessageClient(this).addListener(this)
+        // Register to listen to the watch!\n        Wearable.getMessageClient(this).addListener(this)
     }
 
     override fun onPause() {
@@ -125,8 +120,7 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         Wearable.getMessageClient(this).removeListener(this)
     }
 
-    // --- WEAR OS COMMUNICATION HUB ---
-
+    // --- WEAR OS COMMUNICATION HUB ---\n
     override fun onMessageReceived(messageEvent: MessageEvent) {
         // The watch just woke up and wants to know what's on the screen
         if (messageEvent.path == "/stagepilot/request_chart") {
@@ -185,8 +179,7 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         return builder.toString()
     }
 
-    // ------------------------------------
-
+    // ------------------------------------\n
     protected open fun getLayoutResourceId(): Int {
         return R.layout.activity_test_parse_and_blocks
     }
@@ -215,8 +208,7 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         prefs.edit().putString("blocks_${currentUri.toString()}", jsonArray.toString()).apply()
         Toast.makeText(this, "Saved!", Toast.LENGTH_SHORT).show()
         
-        // Push the newly saved layout to the watch!
-        pushCurrentChartToWatch()
+        // Push the newly saved layout to the watch!\n        pushCurrentChartToWatch()
     }
 
     protected fun loadOrParsePdf(uri: Uri) {
@@ -293,12 +285,22 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
                     val parsedElements = mutableListOf<Pair<String, Boolean>>() // Pair(text, isChord)
 
                     for (line in rawLines) {
-                        val wordsOrChords = line.split("\\s+".toRegex()).filter { it.isNotBlank() }
+                        val tokens = "\\[.*?\\]|\\S+".toRegex().findAll(line).map { it.value }.toList()
                         
-                        for (word in wordsOrChords) {
+                        for (word in tokens) {
+                            if (word.startsWith("[") && word.endsWith("]")) {
+                                val content = word.substring(1, word.length - 1).trim()
+                                if (content.matches(chordRegex)) {
+                                    parsedElements.add(Pair("[$content]", true))
+                                } else {
+                                    parsedElements.add(Pair("$content:", false))
+                                }
+                                continue
+                            }
+
                             val cleanWord = word.trim('[', ']')
                             if (cleanWord.isBlank()) continue
-                            if (cleanWord.matches("^[|:!/\\\\]+$".toRegex())) continue
+                            if (cleanWord.matches("^[|:!/\\\\\\\\]+\$".toRegex())) continue
 
                             if (cleanWord.matches(chordRegex)) {
                                 parsedElements.add(Pair("[$cleanWord]", true))
@@ -343,27 +345,38 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         }
     }
 
-    // --- Block Factory Helpers ---
-
+    // --- Block Factory Helpers ---\n
     private fun createTextBlock(textStr: String, isChord: Boolean): TextView {
         return TextView(this@TestParseAndBlocksActivity).apply {
             text = textStr
             textSize = 14f
-            setTextColor(Color.WHITE)
             
-            setTag(R.id.tag_is_blank, false)
-            setTag(R.id.tag_is_chord, isChord)
-            
+            // --- Stage Mode Logic --- 
+            val prefs = context.getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
+            val stageModeEnabled = prefs.getBoolean("stage_mode_enabled", false)
+
             val bg = ContextCompat.getDrawable(context, R.drawable.rounded_box)?.mutate() as? GradientDrawable
             
-            if (isChord) {
-                val hsv = floatArrayOf(Random.nextFloat() * 60f + 200f, 0.9f, 0.9f)
-                bg?.setColor(Color.HSVToColor(hsv))
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            if (stageModeEnabled) {
+                setTextColor(Color.BLACK)
+                bg?.setColor(Color.WHITE)
+                typeface = android.graphics.Typeface.DEFAULT // Reset typeface if bold was set for chords
             } else {
-                val hsv = floatArrayOf(0f, 0f, Random.nextFloat() * 0.2f + 0.3f)
-                bg?.setColor(Color.HSVToColor(hsv))
+                setTextColor(Color.WHITE)
+                if (isChord) {
+                    val hsv = floatArrayOf(Random.nextFloat() * 60f + 200f, 0.9f, 0.9f)
+                    bg?.setColor(Color.HSVToColor(hsv))
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                } else {
+                    val hsv = floatArrayOf(0f, 0f, Random.nextFloat() * 0.2f + 0.3f)
+                    bg?.setColor(Color.HSVToColor(hsv))
+                    typeface = android.graphics.Typeface.DEFAULT
+                }
             }
+            // --- End Stage Mode Logic --- 
+
+            setTag(R.id.tag_is_blank, false)
+            setTag(R.id.tag_is_chord, isChord)
             
             background = bg
             setPadding(24, 16, 24, 16)
@@ -398,16 +411,14 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         }
     }
 
-    // --- Interaction Menu Logic ---
-
+    // --- Interaction Menu Logic ---\n
     protected fun showBlockMenu(block: TextView) {
         val popup = PopupMenu(this, block)
         popup.menu.add(0, 1, 0, "Drag Block")
         popup.menu.add(0, 2, 0, "Edit Block")
         popup.menu.add(0, 3, 0, "Delete Block")
         popup.menu.add(0, 4, 0, "Add Blank Row")
-        popup.menu.add(0, 5, 0, "Add Text Block") // New feature!
-
+        popup.menu.add(0, 5, 0, "Add Text Block") // New feature!\n
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> enableDragMode(block)
@@ -454,17 +465,31 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
                 val isChord = newText.matches(chordRegex) || newText.startsWith("[")
                 block.setTag(R.id.tag_is_chord, isChord)
                 
-                if (isChord) {
+                // --- Stage Mode Logic --- 
+                val prefs = getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
+                val stageModeEnabled = prefs.getBoolean("stage_mode_enabled", false)
+                
+                if (stageModeEnabled) {
+                    block.setTextColor(Color.BLACK)
                     val bg = ContextCompat.getDrawable(this, R.drawable.rounded_box)?.mutate() as? GradientDrawable
-                    bg?.setColor(Color.HSVToColor(floatArrayOf(Random.nextFloat() * 60f + 200f, 0.9f, 0.9f)))
+                    bg?.setColor(Color.WHITE)
                     block.background = bg
-                    block.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    block.typeface = android.graphics.Typeface.DEFAULT // Reset typeface if bold was set for chords
                 } else {
-                    val bg = ContextCompat.getDrawable(this, R.drawable.rounded_box)?.mutate() as? GradientDrawable
-                    bg?.setColor(Color.HSVToColor(floatArrayOf(0f, 0f, Random.nextFloat() * 0.2f + 0.3f)))
-                    block.background = bg
-                    block.typeface = android.graphics.Typeface.DEFAULT
+                    block.setTextColor(Color.WHITE)
+                    if (isChord) {
+                        val bg = ContextCompat.getDrawable(this, R.drawable.rounded_box)?.mutate() as? GradientDrawable
+                        bg?.setColor(Color.HSVToColor(floatArrayOf(Random.nextFloat() * 60f + 200f, 0.9f, 0.9f)))
+                        block.background = bg
+                        block.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    } else {
+                        val bg = ContextCompat.getDrawable(this, R.drawable.rounded_box)?.mutate() as? GradientDrawable
+                        bg?.setColor(Color.HSVToColor(floatArrayOf(0f, 0f, Random.nextFloat() * 0.2f + 0.3f)))
+                        block.background = bg
+                        block.typeface = android.graphics.Typeface.DEFAULT
+                    }
                 }
+                // --- End Stage Mode Logic ---
 
                 block.measure(
                     View.MeasureSpec.makeMeasureSpec(screenWidth, View.MeasureSpec.AT_MOST),
@@ -513,8 +538,7 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         }
     }
 
-    // --- Layout Math ---
-
+    // --- Layout Math ---\n
     protected fun layoutBlocks(draggingView: View?) {
         var currentX = 16f
         var currentY = 16f
