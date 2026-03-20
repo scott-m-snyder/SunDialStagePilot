@@ -24,6 +24,9 @@ class MainActivity : FragmentActivity(), MessageClient.OnMessageReceivedListener
     private lateinit var scrollView: ScrollView
     private lateinit var btnShutdown: Button
     private lateinit var ambientController: AmbientModeSupport.AmbientController
+    
+    private var isReceivingRemoteScroll = false
+    private var lastScrollSendTime = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,11 +57,9 @@ class MainActivity : FragmentActivity(), MessageClient.OnMessageReceivedListener
                 if (e.rawY > screenHeight / 2) {
                     // Touched bottom half -> Scroll Down one full page
                     scrollView.smoothScrollBy(0, screenHeight - 64)
-                    sendScrollCommandToPhone("/stagepilot/remote_scroll_down")
                 } else {
                     // Touched top half -> Scroll Up one full page
                     scrollView.smoothScrollBy(0, -(screenHeight - 64))
-                    sendScrollCommandToPhone("/stagepilot/remote_scroll_up")
                 }
                 return true
             }
@@ -70,16 +71,32 @@ class MainActivity : FragmentActivity(), MessageClient.OnMessageReceivedListener
             // Returning false lets the ScrollView and Buttons process the event natively as well!
             false
         }
+        
+        scrollView.viewTreeObserver.addOnScrollChangedListener {
+            if (!isReceivingRemoteScroll) {
+                val child = scrollView.getChildAt(0)
+                if (child != null) {
+                    val maxScroll = child.height - scrollView.height
+                    if (maxScroll > 0) {
+                        val percentage = scrollView.scrollY.toFloat() / maxScroll.toFloat()
+                        val now = System.currentTimeMillis()
+                        // Throttle sending sync events to ~20 updates per second to avoid flooding Bluetooth
+                        if (now - lastScrollSendTime > 50) {
+                            lastScrollSendTime = now
+                            sendScrollSyncToPhone(percentage)
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    private fun sendScrollCommandToPhone(path: String) {
-        val nodeClient = Wearable.getNodeClient(this)
+    private fun sendScrollSyncToPhone(percentage: Float) {
         val messageClient = Wearable.getMessageClient(this)
-
-        nodeClient.connectedNodes.addOnSuccessListener { nodes ->
+        Wearable.getNodeClient(this).connectedNodes.addOnSuccessListener { nodes ->
             for (node in nodes) {
-                messageClient.sendMessage(node.id, path, ByteArray(0))
-                    .addOnSuccessListener { Log.d("Wear", "Sent scroll command: $path") }
+                messageClient.sendMessage(node.id, "/stagepilot/sync_scroll", percentage.toString().toByteArray())
+                    .addOnSuccessListener { Log.d("Wear", "Sent scroll sync: $percentage") }
             }
         }
     }
@@ -178,11 +195,20 @@ class MainActivity : FragmentActivity(), MessageClient.OnMessageReceivedListener
                 
                 Log.d("Wear", "Successfully loaded new chart from Z Fold.")
             }
-            "/stagepilot/remote_scroll_down" -> {
-                // The phone told US to scroll down automatically
+            "/stagepilot/sync_scroll" -> {
+                val percentage = String(messageEvent.data).toFloatOrNull() ?: 0f
                 runOnUiThread {
-                    val screenHeight = resources.displayMetrics.heightPixels
-                    scrollView.smoothScrollBy(0, screenHeight - 64)
+                    isReceivingRemoteScroll = true
+                    val child = scrollView.getChildAt(0)
+                    if (child != null) {
+                        val maxScroll = child.height - scrollView.height
+                        if (maxScroll > 0) {
+                            val targetY = (percentage * maxScroll).toInt()
+                            scrollView.scrollTo(0, targetY)
+                        }
+                    }
+                    // Release the lock slightly after to prevent echo loops
+                    scrollView.postDelayed({ isReceivingRemoteScroll = false }, 50)
                 }
             }
         }

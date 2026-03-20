@@ -46,6 +46,10 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
     protected val viewOrder = mutableListOf<View>()
     protected var screenWidth = 0
     protected var currentUri: Uri? = null
+    
+    // Remote scrolling sync state
+    private var isReceivingRemoteScroll = false
+    private var lastScrollSendTime = 0L
 
     // Match all chords
     private val chordRegex = "^(\\[[A-Za-z0-9\\s]+\\]|[A-G][b#♭♯]?(m|M|min|maj|dim|aug|sus|add|\\+|-|Δ|°|ø)?(2|4|5|6|6/9|7|9|11|13)?(\\(([b#♭♯]|add|sus|maj|min|\\+|-)?\\d+\\))?(/[A-G][b#♭♯]?)?|N\\.?C\\.?)$".toRegex()
@@ -101,6 +105,22 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         btnSave.setOnClickListener {
             saveCurrentLayout()
         }
+        
+        // Listen to scroll changes and proactively sync the percentage to the watch
+        scrollView.viewTreeObserver.addOnScrollChangedListener {
+            if (!isReceivingRemoteScroll) {
+                val maxScroll = container.height - scrollView.height
+                if (maxScroll > 0) {
+                    val percentage = scrollView.scrollY.toFloat() / maxScroll.toFloat()
+                    val now = System.currentTimeMillis()
+                    // Throttle updates to ~20fps to avoid flooding the watch
+                    if (now - lastScrollSendTime > 50) {
+                        lastScrollSendTime = now
+                        sendScrollSyncToWatch(percentage)
+                    }
+                }
+            }
+        }
 
         // --- Auto-Load Last PDF ---
         val prefs = getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
@@ -132,6 +152,15 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
     private fun dpToPx(dp: Int): Int {
         return (dp * resources.displayMetrics.density).toInt()
     }
+    
+    private fun sendScrollSyncToWatch(percentage: Float) {
+        val messageClient = Wearable.getMessageClient(this)
+        Wearable.getNodeClient(this).connectedNodes.addOnSuccessListener { nodes ->
+            for (node in nodes) {
+                messageClient.sendMessage(node.id, "/stagepilot/sync_scroll", percentage.toString().toByteArray())
+            }
+        }
+    }
 
     // --- WEAR OS COMMUNICATION HUB ---
     override fun onMessageReceived(messageEvent: MessageEvent) {
@@ -140,31 +169,32 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
                 Log.d("StagePilot", "Watch requested the current chart. Sending it now...")
                 pushCurrentChartToWatch()
             }
+            "/stagepilot/sync_scroll" -> {
+                val percentage = String(messageEvent.data).toFloatOrNull() ?: 0f
+                runOnUiThread {
+                    isReceivingRemoteScroll = true
+                    val maxScroll = container.height - scrollView.height
+                    if (maxScroll > 0) {
+                        val targetY = (percentage * maxScroll).toInt()
+                        // Native scroll jump to exactly match the watch!
+                        scrollView.scrollTo(0, targetY)
+                    }
+                    // Reset flag after a tiny delay so the listener doesn't bounce it back
+                    scrollView.postDelayed({ isReceivingRemoteScroll = false }, 50)
+                }
+            }
+            // Keeping the old paths as fallbacks, though they're no longer strictly needed
+            // since the watch now handles scrolling natively and syncs the percentage!
             "/stagepilot/remote_scroll_down" -> {
-                Log.d("StagePilot", "Watch commanded: Scroll Down")
                 runOnUiThread {
                     val scrollAmount = (scrollView.height * 0.8f).toInt()
-                    var maxY = 0
-                    for (i in 0 until container.childCount) {
-                        val child = container.getChildAt(i)
-                        val bottom = child.y.toInt() + child.height
-                        if (bottom > maxY) maxY = bottom
-                    }
-                    val maxScroll = Math.max(0, maxY - scrollView.height + 100) // 100px padding at bottom
-                    var newScroll = scrollView.scrollY + scrollAmount
-                    if (newScroll > maxScroll) newScroll = maxScroll
-
-                    ObjectAnimator.ofInt(scrollView, "scrollY", newScroll).setDuration(300).start()
+                    scrollView.smoothScrollBy(0, scrollAmount)
                 }
             }
             "/stagepilot/remote_scroll_up" -> {
-                Log.d("StagePilot", "Watch commanded: Scroll Up")
                 runOnUiThread {
                     val scrollAmount = (scrollView.height * 0.8f).toInt()
-                    var newScroll = scrollView.scrollY - scrollAmount
-                    if (newScroll < 0) newScroll = 0
-
-                    ObjectAnimator.ofInt(scrollView, "scrollY", newScroll).setDuration(300).start()
+                    scrollView.smoothScrollBy(0, -scrollAmount)
                 }
             }
         }
