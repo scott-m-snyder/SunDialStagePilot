@@ -1,5 +1,6 @@
 package com.sundial.stagepilot
 
+import android.animation.ObjectAnimator
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
@@ -14,6 +15,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.PopupMenu
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -39,13 +41,14 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
     protected lateinit var btnSave: Button
     protected lateinit var tvStatus: TextView
     protected lateinit var container: FrameLayout
-    
+    protected lateinit var scrollView: ScrollView
+
     protected val viewOrder = mutableListOf<View>()
     protected var screenWidth = 0
     protected var currentUri: Uri? = null
 
     // Match all chords
-    private val chordRegex = "^([A-G][b#♭♯]?(m|M|min|maj|dim|aug|sus|add|\\+|-|Δ|°|ø)?(2|4|5|6|6/9|7|9|11|13)?(\\(([b#♭♯]|add|sus|maj|min|\\+|-)?\\d+\\))?(/[A-G][b#♭♯]?)?|N\\.?C\\.?)$".toRegex()
+    private val chordRegex = "^(\\[[A-Za-z0-9\\s]+\\]|[A-G][b#♭♯]?(m|M|min|maj|dim|aug|sus|add|\\+|-|Δ|°|ø)?(2|4|5|6|6/9|7|9|11|13)?(\\(([b#♭♯]|add|sus|maj|min|\\+|-)?\\d+\\))?(/[A-G][b#♭♯]?)?|N\\.?C\\.?)$".toRegex()
 
     // Using OpenDocument to properly support persistable URI permissions
     protected val selectPdfLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -70,10 +73,11 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         PDFBoxResourceLoader.init(applicationContext)
 
         btnMenu = findViewById(R.id.btn_menu)
-        btnSave = findViewById(R.id.btn_save) ?: Button(this) 
+        btnSave = findViewById(R.id.btn_save) ?: Button(this)
         tvStatus = findViewById(R.id.tv_status)
         container = findViewById(R.id.draggableContainer)
-        
+        scrollView = findViewById(R.id.main_scroll_view)
+
         screenWidth = resources.displayMetrics.widthPixels
 
         btnMenu.setOnClickListener { view ->
@@ -93,7 +97,7 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
             }
             popup.show()
         }
-        
+
         btnSave.setOnClickListener {
             saveCurrentLayout()
         }
@@ -112,7 +116,11 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
 
     override fun onResume() {
         super.onResume()
-        // Register to listen to the watch!\n        Wearable.getMessageClient(this).addListener(this)
+        // Register to listen to the watch!
+        Wearable.getMessageClient(this).addListener(this)
+
+        // Refresh stage mode when returning from settings
+        refreshStageMode()
     }
 
     override fun onPause() {
@@ -120,12 +128,45 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         Wearable.getMessageClient(this).removeListener(this)
     }
 
-    // --- WEAR OS COMMUNICATION HUB ---\n
+    // Helper for device-independent pixels
+    private fun dpToPx(dp: Int): Int {
+        return (dp * resources.displayMetrics.density).toInt()
+    }
+
+    // --- WEAR OS COMMUNICATION HUB ---
     override fun onMessageReceived(messageEvent: MessageEvent) {
-        // The watch just woke up and wants to know what's on the screen
-        if (messageEvent.path == "/stagepilot/request_chart") {
-            Log.d("StagePilot", "Watch requested the current chart. Sending it now...")
-            pushCurrentChartToWatch()
+        when (messageEvent.path) {
+            "/stagepilot/request_chart" -> {
+                Log.d("StagePilot", "Watch requested the current chart. Sending it now...")
+                pushCurrentChartToWatch()
+            }
+            "/stagepilot/remote_scroll_down" -> {
+                Log.d("StagePilot", "Watch commanded: Scroll Down")
+                runOnUiThread {
+                    val scrollAmount = (scrollView.height * 0.8f).toInt()
+                    var maxY = 0
+                    for (i in 0 until container.childCount) {
+                        val child = container.getChildAt(i)
+                        val bottom = child.y.toInt() + child.height
+                        if (bottom > maxY) maxY = bottom
+                    }
+                    val maxScroll = Math.max(0, maxY - scrollView.height + 100) // 100px padding at bottom
+                    var newScroll = scrollView.scrollY + scrollAmount
+                    if (newScroll > maxScroll) newScroll = maxScroll
+
+                    ObjectAnimator.ofInt(scrollView, "scrollY", newScroll).setDuration(300).start()
+                }
+            }
+            "/stagepilot/remote_scroll_up" -> {
+                Log.d("StagePilot", "Watch commanded: Scroll Up")
+                runOnUiThread {
+                    val scrollAmount = (scrollView.height * 0.8f).toInt()
+                    var newScroll = scrollView.scrollY - scrollAmount
+                    if (newScroll < 0) newScroll = 0
+
+                    ObjectAnimator.ofInt(scrollView, "scrollY", newScroll).setDuration(300).start()
+                }
+            }
         }
     }
 
@@ -152,7 +193,7 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
             val block = view as TextView
             val tagY = block.getTag(R.id.tag_target_y) as? Float ?: 0f
             val isBlank = block.getTag(R.id.tag_is_blank) as? Boolean ?: false
-            
+
             if (isBlank) {
                 // Instead of a full gap, just inject a double-line break for readability on the watch
                 builder.append("\n\n")
@@ -179,7 +220,7 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         return builder.toString()
     }
 
-    // ------------------------------------\n
+    // ------------------------------------
     protected open fun getLayoutResourceId(): Int {
         return R.layout.activity_test_parse_and_blocks
     }
@@ -190,33 +231,34 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
             return
         }
         val jsonArray = JSONArray()
-        
+
         for (view in viewOrder) {
             val tv = view as TextView
             val obj = JSONObject()
-            
+
             val isBlank = tv.getTag(R.id.tag_is_blank) as? Boolean ?: false
             val isChord = tv.getTag(R.id.tag_is_chord) as? Boolean ?: false
-            
+
             obj.put("text", tv.text.toString())
             obj.put("isBlank", isBlank)
             obj.put("isChord", isChord)
             jsonArray.put(obj)
         }
-        
+
         val prefs = getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
         prefs.edit().putString("blocks_${currentUri.toString()}", jsonArray.toString()).apply()
         Toast.makeText(this, "Saved!", Toast.LENGTH_SHORT).show()
-        
-        // Push the newly saved layout to the watch!\n        pushCurrentChartToWatch()
+
+        // Push the newly saved layout to the watch!
+        pushCurrentChartToWatch()
     }
 
     protected fun loadOrParsePdf(uri: Uri) {
         currentUri = uri
-        
+
         val prefs = getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
         val savedJson = prefs.getString("blocks_$uri", null)
-        
+
         if (savedJson != null) {
             restoreBlocksFromJson(savedJson)
         } else {
@@ -226,34 +268,34 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
 
     private fun restoreBlocksFromJson(jsonStr: String) {
         tvStatus.text = "Loading saved layout..."
-        
+
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 val jsonArray = JSONArray(jsonStr)
-                
+
                 withContext(Dispatchers.Main) {
                     container.removeAllViews()
                     viewOrder.clear()
-                    
+
                     for (i in 0 until jsonArray.length()) {
                         val obj = jsonArray.getJSONObject(i)
                         val text = obj.getString("text")
                         val isBlank = obj.getBoolean("isBlank")
                         val isChord = obj.getBoolean("isChord")
-                        
+
                         val block = if (isBlank) {
                             createBlankBlock()
                         } else {
                             createTextBlock(text, isChord)
                         }
-                        
+
                         viewOrder.add(block)
                         container.addView(block)
                     }
-                    
+
                     tvStatus.text = "Loaded ${viewOrder.size} saved blocks."
-                    container.post { 
-                        layoutBlocks(null) 
+                    container.post {
+                        layoutBlocks(null)
                         pushCurrentChartToWatch() // Send newly loaded chart
                     }
                 }
@@ -272,29 +314,70 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
                 contentResolver.openInputStream(uri)?.use { inputStream ->
                     val document = PDDocument.load(inputStream)
                     val textStripper = PDFTextStripper()
-                    
-                    textStripper.sortByPosition = true 
-                    
+
+                    textStripper.sortByPosition = true
+
                     val parsedText = textStripper.getText(document)
                     document.close()
 
-                    val rawLines = parsedText.split('\n', '\r')
-                        .map { it.trim() }
-                        .filter { it.isNotEmpty() }
+                    // We DO NOT filter out empty lines here anymore, because an empty line represents
+                    // a paragraph break in the song, which we need to render as a "Blank Row" block!
+                    val rawLines = parsedText.split('\n', '\r').map { it.trim() }
 
                     val parsedElements = mutableListOf<Pair<String, Boolean>>() // Pair(text, isChord)
 
                     for (line in rawLines) {
-                        val tokens = "\\[.*?\\]|\\S+".toRegex().findAll(line).map { it.value }.toList()
-                        
+                        if (line.isEmpty()) {
+                            // If the line is purely whitespace/empty, insert a blank row placeholder!
+                            parsedElements.add(Pair("", false))
+                            continue
+                        }
+
+                        val tokens = line.split("\\s+".toRegex()).filter { it.isNotBlank() }
+
+                        var inBracket = false
+                        var currentBracketContent = ""
+
                         for (word in tokens) {
-                            if (word.startsWith("[") && word.endsWith("]")) {
+                            if (word.startsWith("[") && word.endsWith("]") && word.length > 1) {
                                 val content = word.substring(1, word.length - 1).trim()
-                                if (content.matches(chordRegex)) {
+                                if (content.matches(chordRegex) || content.matches("^[A-G].*".toRegex())) {
                                     parsedElements.add(Pair("[$content]", true))
                                 } else {
                                     parsedElements.add(Pair("$content:", false))
                                 }
+                                continue
+                            }
+
+                            if (word == "[") {
+                                inBracket = true
+                                currentBracketContent = ""
+                                continue
+                            } else if (word.startsWith("[")) {
+                                inBracket = true
+                                currentBracketContent = word.substring(1) + " "
+                                continue
+                            } else if (inBracket && word == "]") {
+                                inBracket = false
+                                val content = currentBracketContent.trim()
+                                if (content.matches(chordRegex) || content.matches("^[A-G].*".toRegex())) {
+                                    parsedElements.add(Pair("[$content]", true))
+                                } else {
+                                    parsedElements.add(Pair("$content:", false))
+                                }
+                                continue
+                            } else if (inBracket && word.endsWith("]")) {
+                                inBracket = false
+                                currentBracketContent += word.substring(0, word.length - 1)
+                                val content = currentBracketContent.trim()
+                                if (content.matches(chordRegex) || content.matches("^[A-G].*".toRegex())) {
+                                    parsedElements.add(Pair("[$content]", true))
+                                } else {
+                                    parsedElements.add(Pair("$content:", false))
+                                }
+                                continue
+                            } else if (inBracket) {
+                                currentBracketContent += "$word "
                                 continue
                             }
 
@@ -312,26 +395,27 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
 
                     withContext(Dispatchers.Main) {
                         tvStatus.text = "Generating ${parsedElements.size} Blocks..."
-                        
+
                         container.removeAllViews()
                         viewOrder.clear()
 
-                        val elementsToRender = parsedElements.take(500) 
-
-                        for ((textStr, isChord) in elementsToRender) {
-                            val wordBlock = createTextBlock(textStr, isChord)
-                            viewOrder.add(wordBlock)
-                            container.addView(wordBlock)
+                        for ((textStr, isChord) in parsedElements) {
+                            if (textStr.isEmpty()) {
+                                // Add a completely blank/invisible spacer row to separate sections!
+                                val blankBlock = createBlankBlock()
+                                viewOrder.add(blankBlock)
+                                container.addView(blankBlock)
+                            } else {
+                                val wordBlock = createTextBlock(textStr, isChord)
+                                viewOrder.add(wordBlock)
+                                container.addView(wordBlock)
+                            }
                         }
 
-                        if (parsedElements.size > 500) {
-                            tvStatus.text = "Loaded (Capped at 500 blocks for performance test)"
-                        } else {
-                            tvStatus.text = "Loaded ${parsedElements.size} blocks."
-                        }
+                        tvStatus.text = "Loaded ${parsedElements.size} blocks. (End of Chart)"
 
-                        container.post { 
-                            layoutBlocks(null) 
+                        container.post {
+                            layoutBlocks(null)
                             pushCurrentChartToWatch() // Send newly generated chart
                         }
                     }
@@ -345,47 +429,84 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         }
     }
 
-    // --- Block Factory Helpers ---\n
+    private fun refreshStageMode() {
+        val prefs = getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
+        val stageModeEnabled = prefs.getBoolean("stage_mode_enabled", false)
+
+        scrollView.setBackgroundColor(if (stageModeEnabled) Color.WHITE else Color.parseColor("#222222"))
+        container.setBackgroundColor(Color.TRANSPARENT)
+
+        for (view in viewOrder) {
+            val tv = view as TextView
+            val isBlank = tv.getTag(R.id.tag_is_blank) as? Boolean ?: false
+            val isChord = tv.getTag(R.id.tag_is_chord) as? Boolean ?: false
+
+            applyStyleToBlock(tv, isBlank, isChord, stageModeEnabled)
+
+            // Re-measure text blocks (blank blocks are measured inside applyStyleToBlock)
+            if (!isBlank) {
+                tv.measure(
+                    View.MeasureSpec.makeMeasureSpec(screenWidth, View.MeasureSpec.AT_MOST),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+                )
+                tv.layoutParams = FrameLayout.LayoutParams(tv.measuredWidth, tv.measuredHeight)
+            }
+        }
+        layoutBlocks(null)
+    }
+
+    private fun applyStyleToBlock(tv: TextView, isBlank: Boolean, isChord: Boolean, stageModeEnabled: Boolean) {
+        if (isBlank) {
+            val newHeight = if (stageModeEnabled) dpToPx(16) else dpToPx(32)
+            val fixedWidth = screenWidth - dpToPx(32)
+            tv.measure(
+                View.MeasureSpec.makeMeasureSpec(fixedWidth, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(newHeight, View.MeasureSpec.EXACTLY)
+            )
+            tv.layoutParams = FrameLayout.LayoutParams(fixedWidth, newHeight)
+        } else {
+            val bg = ContextCompat.getDrawable(this, R.drawable.rounded_box)?.mutate() as? GradientDrawable
+            if (stageModeEnabled) {
+                tv.setTextColor(Color.BLACK)
+                bg?.setColor(Color.WHITE)
+                tv.typeface = android.graphics.Typeface.DEFAULT
+            } else {
+                tv.setTextColor(Color.WHITE)
+                if (isChord) {
+                    val hue = tv.getTag(R.id.tag_target_x) as? Float ?: (Random.nextFloat() * 60f + 200f) // Keep stable colors if possible
+                    bg?.setColor(Color.HSVToColor(floatArrayOf(hue, 0.9f, 0.9f)))
+                    tv.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                } else {
+                    bg?.setColor(Color.HSVToColor(floatArrayOf(0f, 0f, 0.2f))) // Dark gray for lyrics
+                    tv.typeface = android.graphics.Typeface.DEFAULT
+                }
+            }
+            tv.background = bg
+            tv.setPadding(24, 16, 24, 16)
+        }
+    }
+
+    // --- Block Factory Helpers ---
     private fun createTextBlock(textStr: String, isChord: Boolean): TextView {
         return TextView(this@TestParseAndBlocksActivity).apply {
             text = textStr
             textSize = 14f
-            
-            // --- Stage Mode Logic --- 
+
             val prefs = context.getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
             val stageModeEnabled = prefs.getBoolean("stage_mode_enabled", false)
 
-            val bg = ContextCompat.getDrawable(context, R.drawable.rounded_box)?.mutate() as? GradientDrawable
-            
-            if (stageModeEnabled) {
-                setTextColor(Color.BLACK)
-                bg?.setColor(Color.WHITE)
-                typeface = android.graphics.Typeface.DEFAULT // Reset typeface if bold was set for chords
-            } else {
-                setTextColor(Color.WHITE)
-                if (isChord) {
-                    val hsv = floatArrayOf(Random.nextFloat() * 60f + 200f, 0.9f, 0.9f)
-                    bg?.setColor(Color.HSVToColor(hsv))
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                } else {
-                    val hsv = floatArrayOf(0f, 0f, Random.nextFloat() * 0.2f + 0.3f)
-                    bg?.setColor(Color.HSVToColor(hsv))
-                    typeface = android.graphics.Typeface.DEFAULT
-                }
-            }
-            // --- End Stage Mode Logic --- 
-
             setTag(R.id.tag_is_blank, false)
             setTag(R.id.tag_is_chord, isChord)
-            
-            background = bg
-            setPadding(24, 16, 24, 16)
+            // Generate initial random hue to keep non-stage mode colors stable when toggling
+            if (isChord) setTag(R.id.tag_target_x, Random.nextFloat() * 60f + 200f)
+
+            applyStyleToBlock(this, false, isChord, stageModeEnabled)
 
             measure(
                 View.MeasureSpec.makeMeasureSpec(screenWidth, View.MeasureSpec.AT_MOST),
                 View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
             )
-            
+
             layoutParams = FrameLayout.LayoutParams(measuredWidth, measuredHeight)
             setOnClickListener { showBlockMenu(this) }
         }
@@ -397,28 +518,26 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
             textSize = 1f
             setBackgroundColor(Color.TRANSPARENT)
             setPadding(0, 0, 0, 0)
-            
+
+            val prefs = context.getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
+            val stageModeEnabled = prefs.getBoolean("stage_mode_enabled", false)
+
             setTag(R.id.tag_is_blank, true)
             setTag(R.id.tag_is_chord, false)
 
-            val fixedWidth = screenWidth - 32
-            measure(
-                View.MeasureSpec.makeMeasureSpec(fixedWidth, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(32, View.MeasureSpec.EXACTLY)
-            )
-            layoutParams = FrameLayout.LayoutParams(fixedWidth, 32)
+            applyStyleToBlock(this, true, false, stageModeEnabled)
             setOnClickListener { showBlockMenu(this) }
         }
     }
 
-    // --- Interaction Menu Logic ---\n
+    // --- Interaction Menu Logic ---
     protected fun showBlockMenu(block: TextView) {
         val popup = PopupMenu(this, block)
         popup.menu.add(0, 1, 0, "Drag Block")
         popup.menu.add(0, 2, 0, "Edit Block")
         popup.menu.add(0, 3, 0, "Delete Block")
         popup.menu.add(0, 4, 0, "Add Blank Row")
-        popup.menu.add(0, 5, 0, "Add Text Block") // New feature!\n
+        popup.menu.add(0, 5, 0, "Add Text Block") // New feature!
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> enableDragMode(block)
@@ -448,7 +567,7 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
     protected fun deleteBlock(block: TextView) {
         viewOrder.remove(block)
         container.removeView(block)
-        layoutBlocks(null) 
+        layoutBlocks(null)
     }
 
     protected fun showEditDialog(block: TextView) {
@@ -461,35 +580,14 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
             .setPositiveButton("Save") { _, _ ->
                 val newText = input.text.toString().trim()
                 block.text = newText
-                
+
                 val isChord = newText.matches(chordRegex) || newText.startsWith("[")
                 block.setTag(R.id.tag_is_chord, isChord)
-                
-                // --- Stage Mode Logic --- 
+
                 val prefs = getSharedPreferences("StagePilotPrefs", MODE_PRIVATE)
                 val stageModeEnabled = prefs.getBoolean("stage_mode_enabled", false)
-                
-                if (stageModeEnabled) {
-                    block.setTextColor(Color.BLACK)
-                    val bg = ContextCompat.getDrawable(this, R.drawable.rounded_box)?.mutate() as? GradientDrawable
-                    bg?.setColor(Color.WHITE)
-                    block.background = bg
-                    block.typeface = android.graphics.Typeface.DEFAULT // Reset typeface if bold was set for chords
-                } else {
-                    block.setTextColor(Color.WHITE)
-                    if (isChord) {
-                        val bg = ContextCompat.getDrawable(this, R.drawable.rounded_box)?.mutate() as? GradientDrawable
-                        bg?.setColor(Color.HSVToColor(floatArrayOf(Random.nextFloat() * 60f + 200f, 0.9f, 0.9f)))
-                        block.background = bg
-                        block.typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    } else {
-                        val bg = ContextCompat.getDrawable(this, R.drawable.rounded_box)?.mutate() as? GradientDrawable
-                        bg?.setColor(Color.HSVToColor(floatArrayOf(0f, 0f, Random.nextFloat() * 0.2f + 0.3f)))
-                        block.background = bg
-                        block.typeface = android.graphics.Typeface.DEFAULT
-                    }
-                }
-                // --- End Stage Mode Logic ---
+
+                applyStyleToBlock(block, false, isChord, stageModeEnabled)
 
                 block.measure(
                     View.MeasureSpec.makeMeasureSpec(screenWidth, View.MeasureSpec.AT_MOST),
@@ -515,7 +613,7 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
                 if (text.isNotEmpty()) {
                     val isChord = text.matches(chordRegex) || text.startsWith("[")
                     val newBlock = createTextBlock(text, isChord)
-                    
+
                     val index = viewOrder.indexOf(afterBlock)
                     if (index != -1) {
                         viewOrder.add(index + 1, newBlock)
@@ -538,26 +636,59 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
         }
     }
 
-    // --- Layout Math ---\n
+    // --- Layout Math ---
     protected fun layoutBlocks(draggingView: View?) {
-        var currentX = 16f
-        var currentY = 16f
-        val horizontalSpacing = 16f
-        val verticalSpacing = 24f
+        val startPaddingX = dpToPx(16).toFloat()
+        var currentX = startPaddingX
+        var currentY = dpToPx(16).toFloat()
+        val horizontalSpacing = dpToPx(8).toFloat()
+        val verticalSpacing = dpToPx(12).toFloat()
         var maxLineHeight = 0
 
+        val maxAllowedX = screenWidth - dpToPx(16)
+
         for (view in viewOrder) {
+            val isBlank = view.getTag(R.id.tag_is_blank) as? Boolean ?: false
+
+            if (isBlank) {
+                // FORCE a line break BEFORE the blank row if we are not at the start of a line
+                if (currentX > startPaddingX) {
+                    currentX = startPaddingX
+                    currentY += maxLineHeight + verticalSpacing
+                    maxLineHeight = 0
+                }
+
+                // Place the blank row block itself
+                view.setTag(R.id.tag_target_x, currentX)
+                view.setTag(R.id.tag_target_y, currentY)
+
+                if (view != draggingView) {
+                    view.animate()
+                        .x(currentX)
+                        .y(currentY)
+                        .setDuration(200)
+                        .start()
+                }
+
+                // FORCE a line break AFTER the blank row block, so the next word goes on a new line!
+                currentY += view.measuredHeight + verticalSpacing
+                currentX = startPaddingX
+                maxLineHeight = 0
+                continue
+            }
+
+            // Normal text/chord block placement
             val width = view.measuredWidth
             val height = view.measuredHeight
 
-            if (height > maxLineHeight) maxLineHeight = height
-
             // Carriage return if it exceeds the screen width
-            if (currentX + width > screenWidth - 16f) {
-                currentX = 16f
+            if (currentX + width > maxAllowedX) {
+                currentX = startPaddingX
                 currentY += maxLineHeight + verticalSpacing
-                maxLineHeight = height
+                maxLineHeight = 0 // Reset max height for the new line!
             }
+
+            if (height > maxLineHeight) maxLineHeight = height
 
             view.setTag(R.id.tag_target_x, currentX)
             view.setTag(R.id.tag_target_y, currentY)
@@ -572,6 +703,19 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
 
             currentX += width + horizontalSpacing
         }
+
+        // Dynamically update the container height so the ScrollView can accurately scroll!
+        // Since we position children via translationX/Y (animate().x().y()), the FrameLayout
+        // doesn't know the real content bounds. We must set the height explicitly.
+        val requiredHeight = (currentY + maxLineHeight + dpToPx(150)).toInt()
+        Log.d("StagePilot", "layoutBlocks: requiredHeight=$requiredHeight scrollViewHeight=${scrollView.height} blocks=${viewOrder.size}")
+        val lp = container.layoutParams
+        lp.height = requiredHeight
+        container.layoutParams = lp
+        container.minimumHeight = requiredHeight
+        // Force a full measure/layout pass so ScrollView recalculates scroll range
+        container.requestLayout()
+        scrollView.post { scrollView.requestLayout() }
     }
 
     protected fun updateOrderWhileDragging(draggedView: View) {
@@ -638,9 +782,9 @@ open class TestParseAndBlocksActivity : ComponentActivity(), MessageClient.OnMes
                         .scaleX(1.0f)
                         .scaleY(1.0f)
                         .alpha(1.0f)
-                        
+
                     container.post { layoutBlocks(null) }
-                    
+
                     view.setOnTouchListener(null)
                     view.setOnClickListener { showBlockMenu(view as TextView) }
                     return true

@@ -63,13 +63,22 @@
             android:text="Ready."/>
     </LinearLayout>
 
-    <!-- The Lego Canvas -->
-    <FrameLayout
-        android:id="@+id/draggableContainer"
+    <!-- The Lego Canvas wrapped in a ScrollView to allow scrolling! -->
+    <ScrollView
+        android:id="@+id/main_scroll_view"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:background="#FFFFFF">
-    </FrameLayout>
+        android:background="#FFFFFF"
+        android:fillViewport="false">
+
+        <FrameLayout
+            android:id="@+id/draggableContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="100dp">
+        </FrameLayout>
+
+    </ScrollView>
 
 </LinearLayout>

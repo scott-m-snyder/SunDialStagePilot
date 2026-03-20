@@ -1,46 +1,110 @@
 package com.sundial.stagepilot.wear
 
-import android.app.Activity
+import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
+import android.view.GestureDetector
 import android.view.MotionEvent
-import android.view.View
+import android.view.WindowManager
+import android.widget.Button
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.fragment.app.FragmentActivity
+import androidx.wear.ambient.AmbientModeSupport
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 
-class MainActivity : Activity(), MessageClient.OnMessageReceivedListener {
+class MainActivity : FragmentActivity(), MessageClient.OnMessageReceivedListener, AmbientModeSupport.AmbientCallbackProvider {
 
     private lateinit var tvChartContent: TextView
     private lateinit var scrollView: ScrollView
-    private lateinit var touchOverlay: View
+    private lateinit var btnShutdown: Button
+    private lateinit var ambientController: AmbientModeSupport.AmbientController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Keep the screen on while the app is active
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        // Enable Ambient Mode (Always-On)
+        ambientController = AmbientModeSupport.attach(this)
+
         tvChartContent = findViewById(R.id.tv_chart_content)
         scrollView = findViewById(R.id.scroll_view)
-        touchOverlay = findViewById(R.id.touch_overlay)
+        btnShutdown = findViewById(R.id.btn_shutdown)
 
-        // Implement touch zones on the watch face
-        // Tapping the bottom half scrolls down, tapping the top half scrolls up!
-        touchOverlay.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_DOWN) {
+        btnShutdown.setOnClickListener {
+            // Unhook from the watch's Significant Motion Sensor
+            stopService(Intent(this, MotionService::class.java))
+            // Immediately close the app and return to the watch face
+            finishAffinity()
+        }
+
+        // Use a GestureDetector to pick up simple taps on the scrollview without
+        // overriding its ability to scroll normally or the button's ability to be clicked!
+        val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 val screenHeight = resources.displayMetrics.heightPixels
-                if (event.rawY > screenHeight / 2) {
+                if (e.rawY > screenHeight / 2) {
                     // Touched bottom half -> Scroll Down one full page
                     scrollView.smoothScrollBy(0, screenHeight - 64)
+                    sendScrollCommandToPhone("/stagepilot/remote_scroll_down")
                 } else {
                     // Touched top half -> Scroll Up one full page
                     scrollView.smoothScrollBy(0, -(screenHeight - 64))
+                    sendScrollCommandToPhone("/stagepilot/remote_scroll_up")
                 }
+                return true
             }
-            true // Consume the event so it doesn't trigger other things
+        })
+
+        // Attach it to the ScrollView
+        scrollView.setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
+            // Returning false lets the ScrollView and Buttons process the event natively as well!
+            false
+        }
+    }
+
+    private fun sendScrollCommandToPhone(path: String) {
+        val nodeClient = Wearable.getNodeClient(this)
+        val messageClient = Wearable.getMessageClient(this)
+
+        nodeClient.connectedNodes.addOnSuccessListener { nodes ->
+            for (node in nodes) {
+                messageClient.sendMessage(node.id, path, ByteArray(0))
+                    .addOnSuccessListener { Log.d("Wear", "Sent scroll command: $path") }
+            }
+        }
+    }
+
+    override fun getAmbientCallback(): AmbientModeSupport.AmbientCallback {
+        return MyAmbientCallback()
+    }
+
+    private inner class MyAmbientCallback : AmbientModeSupport.AmbientCallback() {
+        override fun onEnterAmbient(ambientDetails: Bundle?) {
+            super.onEnterAmbient(ambientDetails)
+            // Watch dropped: Dim screen to save battery
+            tvChartContent.setTextColor(Color.LTGRAY)
+            // Optional: disable anti-aliasing on text for burn-in protection, etc.
+        }
+
+        override fun onExitAmbient() {
+            super.onExitAmbient()
+            // Wrist raised: Restore full color and brightness
+            tvChartContent.setTextColor(Color.WHITE)
+        }
+
+        override fun onUpdateAmbient() {
+            super.onUpdateAmbient()
+            // Optional: Update screen periodically while in ambient mode
         }
     }
 
